@@ -338,5 +338,15 @@
         document.getElementById('volumeSlider').addEventListener('input', (e) => audio.volume = e.target.value);
         notesArea.addEventListener('input', () => localStorage.setItem('focus_notes', notesArea.value));
     </script>
+	<script>
+	  if ('serviceWorker' in navigator) {
+	    window.addEventListener('load', () => {
+	      navigator.serviceWorker.register('./sw.js')
+	        .then(reg => console.log('DeepState PWA Active'))
+	        .catch(err => console.log('PWA Error', err));
+	    });
+	  }
+	</script>
 </body>
+
 </html>
