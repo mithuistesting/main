@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepState OS v4.5</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0; padding: 0;
+            font-family: 'Inter', sans-serif;
+            background: #020617; color: white;
+            min-height: 100vh; transition: background 2s ease;
+            overflow-x: hidden;
+        }
+        .glass { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
+        
+        #clock { 
+            font-size: clamp(4rem, 20vw, 12rem); 
+            font-weight: 900; 
+            line-height: 1; 
+            letter-spacing: -0.05em;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        #workstation-grid { display: none; width: 100%; max-width: 1400px; margin: 0 auto; padding: 10px; gap: 20px; }
+        @media (min-width: 1024px) { #workstation-grid { grid-template-columns: 1fr 380px; padding: 20px; } }
+        
+        .video-container { position: relative; padding-bottom: 56.25%; height: 0; border-radius: 16px; overflow: hidden; }
+        .video-container iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+        /* THE SHRINKABLE TRACKER */
+        #cumulative-tracker {
+            position: fixed; bottom: 20px; right: 20px;
+            z-index: 100; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+	    
+        }
+	#historyLog {
+	            overflow: auto; /* Add scrollbars only when needed */
+
+  /* Fallback for Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: #888 rgba(255,255,255,0.0);
+
+  /* For Chrome, Safari, Edge */
+  &::-webkit-scrollbar {
+    width: 10px;
+  }
+  &::-webkit-scrollbar-track {
+    background: rgba(255,255,255,0.4)
+  }
+  &::-webkit-scrollbar-thumb {
+    background: #888;
+  }
+	}
+        .tracker-expanded { width: 220px; padding: 15px; border-radius: 16px; }
+        .tracker-shrunk { width: 45px; height: 45px; padding: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        
+        /* MODAL */
+        #timer-end-modal { display: none; position: fixed; inset: 0; background: rgba(2, 6, 23, 0.95); z-index: 200; align-items: center; justify-content: center; padding: 20px; }
+
+        .hidden { display: none !important; }
+        body.merged-mode #clock { font-size: clamp(2.5rem, 8vw, 4rem); margin-bottom: 1rem; }
+        
+        /* Pulse for the dot when timer is running */
+        .pulse-blue { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0); } 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); } }
+    </style>
+</head>
+<body>
+
+    <div id="timer-end-modal">
+        <div class="glass p-8 rounded-[30px] max-w-sm w-full text-center">
+            <h2 class="text-2xl font-black mb-2 italic">MISSION LOGGED</h2>
+            <p class="text-slate-400 text-sm mb-6">Reset the clock to stay in DeepState.</p>
+            <input type="number" id="newTimeInput" placeholder="New Minutes..." class="w-full bg-slate-900 border border-slate-700 p-3 rounded-xl mb-4 text-center outline-none ring-blue-500 focus:ring-2">
+            <button onclick="extendMission()" class="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold transition-all mb-2">START NEW SPRINT</button>
+            <button onclick="closeModal()" class="w-full py-3 text-xs text-slate-500 hover:text-white uppercase font-bold tracking-widest transition-all">Just continue class</button>
+        </div>
+    </div>
+
+    <div id="central-timer-view" class="flex flex-col justify-center items-center min-h-screen p-5">
+        
+        <div id="setup-card" class="glass p-10 rounded-[30px] text-center w-full max-w-md">
+            <h1 class="text-4xl font-black tracking-tighter mb-2 italic">DEEPSTATE</h1>
+            <p class="text-slate-500 text-[10px] uppercase tracking-[0.4em] mb-8">System Initialized</p>
+            <input type="text" id="goalInput" placeholder="Mission Goal..." class="w-full bg-slate-900/50 border border-slate-800 p-4 rounded-xl mb-4 outline-none">
+            <input type="number" id="timeInput" placeholder="Minutes" class="w-full bg-slate-900/50 border border-slate-800 p-4 rounded-xl mb-6 outline-none">
+            <button onclick="startDeepWork()" class="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-bold">LOCK IN</button>
+        </div>
+
+        <div id="timer-hud" class="hidden w-full flex flex-col items-center">
+            <h2 id="activeGoal" class="text-xs font-bold text-blue-400 uppercase tracking-widest mb-4">ACTIVE</h2>
+            <div id="clock">00:00</div>
+            
+            <div class="flex flex-wrap gap-3 mt-8 justify-center">
+                <button onclick="toggleTimer()" id="pauseBtn" class="glass px-8 py-3 rounded-xl font-bold hover:bg-white/10 text-xs">PAUSE</button>
+                <button id="classModeToggle" onclick="toggleWorkstation()" class="bg-indigo-600 px-8 py-3 rounded-xl font-bold hover:bg-indigo-500 text-xs transition-all">🎓 CLASS MODE</button>
+                <button id="resetTimerBtn" onclick="showNewTimerModal()" class="hidden bg-emerald-600 px-8 py-3 rounded-xl font-bold hover:bg-emerald-500 text-xs">RE-SET TIMER</button>
+                <button onclick="abortMission()" class="glass border-red-900/50 text-red-500 px-8 py-3 rounded-xl font-bold text-xs hover:bg-red-500/10">ABORT</button>
+            </div>
+            
+            <div class="mt-8 glass p-3 rounded-2xl flex items-center gap-4 max-w-sm w-full">
+                <button onclick="toggleAudio()" class="text-[10px] font-black p-2 bg-white/5 rounded-lg">AUDIO</button>
+                <input type="file" id="audioUpload" accept="audio/*" class="hidden">
+                <label for="audioUpload" class="text-[9px] cursor-pointer opacity-50">📁 UPLOAD</label>
+                <input type="range" id="volumeSlider" min="0" max="1" step="0.1" value="0.5" class="flex-grow h-1">
+            </div>
+        </div>
+    </div>
+
+    <div id="workstation-grid">
+        <div class="space-y-4">
+            <div class="flex gap-2 glass p-2 rounded-2xl">
+                <input id="videoUrl" type="text" placeholder="YouTube URL..." class="bg-transparent border-none outline-none flex-grow px-2 text-sm">
+                <button onclick="loadVideo()" class="bg-blue-600 px-4 py-2 rounded-xl text-[10px] font-bold uppercase">LOAD</button>
+            </div>
+            <div class="video-container glass shadow-2xl">
+                <iframe id="player" src="about:blank" allowfullscreen></iframe>
+            </div>
+        </div>
+        <div class="space-y-4">
+            <div class="glass p-6 rounded-2xl h-[350px] flex flex-col">
+                <h3 class="text-[10px] font-bold text-slate-500 uppercase mb-4 tracking-widest">Live Notes</h3>
+                <textarea id="notesArea" placeholder="Capture class insights..." class="flex-grow bg-transparent border-none outline-none text-sm resize-none"></textarea>
+            </div>
+            <div class="glass p-6 rounded-2xl">
+                <h3 class="text-[10px] font-bold text-slate-500 uppercase mb-4 tracking-widest">Tasks</h3>
+                <div id="taskList" class="space-y-2 mb-4 max-h-40 overflow-y-auto pr-2"></div>
+                <div class="flex gap-2">
+                    <input id="taskInput" type="text" placeholder="Add step..." class="bg-white/5 p-2 text-xs flex-grow rounded outline-none border border-white/5 focus:border-blue-500/50">
+                    <button onclick="addTask()" class="bg-blue-600 px-4 rounded text-white font-bold">+</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="cumulative-tracker" class="tracker-expanded border border-blue-500/30 bg-slate-950/90 shadow-2xl backdrop-blur-xl">
+        <div class="flex justify-between items-center mb-1">
+            <span id="trackerLabel" class="text-[9px] font-bold text-blue-500 uppercase tracking-tighter">Total Focus</span>
+            <button onclick="toggleTrackerSize()" id="shrinkBtn" class="text-[10px] hover:text-white opacity-40 px-1">▼</button>
+        </div>
+        <div id="trackerContent">
+            <div id="totalTimeDisplay" class="text-xl font-mono font-bold">00h 00m 00s</div>
+            <div id="historyLog" class="mt-3 space-y-1 max-h-32 overflow-y-auto text-[9px] border-t border-white/5 pt-2"></div>
+            <button onclick="resetAllStats()" class="mt-3 text-[8px] text-red-500/50 hover:text-red-500 uppercase font-bold">Reset Stats</button>
+        </div>
+    </div>
+
+    <audio id="focusAudio" loop></audio>
+
+    <script>
+        let timeLeft, timerId, totalSecs = parseInt(localStorage.getItem('totalSecs')) || 0;
+        let isRunning = false, isWorkstationOpen = false, isTrackerShrunk = false;
+        let history = JSON.parse(localStorage.getItem('history')) || [];
+
+        const audio = document.getElementById('focusAudio');
+        const notesArea = document.getElementById('notesArea');
+
+        updateTotalDisplay();
+        renderHistory();
+        notesArea.value = localStorage.getItem('focus_notes') || "";
+
+        function startDeepWork() {
+            const mins = document.getElementById('timeInput').value;
+            if (!mins) return;
+            document.getElementById('setup-card').classList.add('hidden');
+            document.getElementById('timer-hud').classList.remove('hidden');
+            document.getElementById('activeGoal').innerText = document.getElementById('goalInput').value || "MISSION ACTIVE";
+            initTimer(mins);
+        }
+
+        function initTimer(mins) {
+            timeLeft = mins * 60;
+            updateClock();
+            document.getElementById('resetTimerBtn').classList.add('hidden');
+            document.getElementById('pauseBtn').classList.remove('hidden');
+            if (!isRunning) startTimer();
+        }
+
+        function startTimer() {
+            isRunning = true;
+            document.getElementById('pauseBtn').innerText = "PAUSE";
+            if (isTrackerShrunk) document.getElementById('cumulative-tracker').classList.add('pulse-blue');
+            timerId = setInterval(() => {
+                timeLeft--;
+                totalSecs++;
+                updateClock();
+                updateTotalDisplay();
+                if (timeLeft <= 0) handleTimerEnd();
+            }, 1000);
+        }
+
+        function toggleTimer() {
+            if (isRunning) { 
+                clearInterval(timerId); 
+                document.getElementById('pauseBtn').innerText = "RESUME";
+                document.getElementById('cumulative-tracker').classList.remove('pulse-blue');
+            } else { 
+                startTimer(); 
+            }
+            isRunning = !isRunning;
+        }
+
+        function handleTimerEnd() {
+            clearInterval(timerId);
+            isRunning = false;
+            document.getElementById('cumulative-tracker').classList.remove('pulse-blue');
+            saveToHistory(true);
+            document.getElementById('timer-end-modal').style.display = 'flex';
+        }
+
+        function showNewTimerModal() { document.getElementById('timer-end-modal').style.display = 'flex'; }
+
+        function extendMission() {
+            const newMins = document.getElementById('newTimeInput').value;
+            if (!newMins) return;
+            document.getElementById('timer-end-modal').style.display = 'none';
+            initTimer(newMins);
+        }
+
+        function closeModal() {
+            document.getElementById('timer-end-modal').style.display = 'none';
+            document.getElementById('resetTimerBtn').classList.remove('hidden'); // Show button to set again
+            document.getElementById('pauseBtn').classList.add('hidden'); // Hide pause since 00:00
+        }
+
+        function abortMission() {
+            if (confirm("End current session? History will be logged.")) {
+                clearInterval(timerId);
+                isRunning = false;
+                saveToHistory(false);
+                timeLeft = 0;
+                updateClock();
+                document.getElementById('resetTimerBtn').classList.remove('hidden');
+                document.getElementById('pauseBtn').classList.add('hidden');
+            }
+        }
+
+        function toggleWorkstation() {
+            isWorkstationOpen = !isWorkstationOpen;
+            const grid = document.getElementById('workstation-grid');
+            const view = document.getElementById('central-timer-view');
+            const btn = document.getElementById('classModeToggle');
+            
+            if (isWorkstationOpen) {
+                document.body.classList.add('merged-mode');
+                grid.style.display = 'grid';
+                btn.innerText = "✕ CLOSE CLASS";
+                btn.classList.replace('bg-indigo-600', 'bg-red-900/50');
+            } else {
+                document.body.classList.remove('merged-mode');
+                grid.style.display = 'none';
+                btn.innerText = "🎓 CLASS MODE";
+                btn.classList.replace('bg-red-900/50', 'bg-indigo-600');
+            }
+        }
+
+        function toggleTrackerSize() {
+            const tracker = document.getElementById('cumulative-tracker');
+            const content = document.getElementById('trackerContent');
+            const label = document.getElementById('trackerLabel');
+            const btn = document.getElementById('shrinkBtn');
+            
+            isTrackerShrunk = !isTrackerShrunk;
+            if (isTrackerShrunk) {
+                tracker.className = 'tracker-shrunk bg-blue-600 border-none cursor-pointer';
+                if (isRunning) tracker.classList.add('pulse-blue');
+                content.classList.add('hidden');
+                label.classList.add('hidden');
+                btn.innerText = "●";
+                btn.className = "text-white text-lg font-bold";
+            } else {
+                tracker.className = 'tracker-expanded border border-blue-500/30 bg-slate-950/90 shadow-2xl';
+                tracker.classList.remove('pulse-blue');
+                content.classList.remove('hidden');
+                label.classList.remove('hidden');
+                btn.innerText = "▼";
+                btn.className = "text-[10px] opacity-40 px-1";
+            }
+        }
+
+        function updateClock() {
+            const m = Math.floor(Math.max(0, timeLeft) / 60);
+            const s = Math.max(0, timeLeft) % 60;
+            document.getElementById('clock').innerText = `${m}:${s < 10 ? '0' : ''}${s}`;
+        }
+
+        function updateTotalDisplay() {
+            const h = Math.floor(totalSecs / 3600);
+            const m = Math.floor((totalSecs % 3600) / 60);
+            const s = totalSecs % 60;
+            document.getElementById('totalTimeDisplay').innerText = `${h}h ${m}m ${s}s`;
+            localStorage.setItem('totalSecs', totalSecs);
+        }
+
+        function saveToHistory(done) {
+            history.unshift({ time: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}), status: done ? 'done' : 'partial' });
+            localStorage.setItem('history', JSON.stringify(history.slice(0, 10)));
+            renderHistory();
+        }
+
+        function renderHistory() {
+            document.getElementById('historyLog').innerHTML = history.map(s => `
+                <div class="flex justify-between items-center py-1 border-b border-white/5 opacity-50">
+                    <span>${s.time}</span> <span class="text-[7px] uppercase font-bold">${s.status}</span>
+                </div>
+            `).join('');
+        }
+
+        function resetAllStats() {
+            if (confirm("Permanently wipe all focus history and lifetime time?")) {
+                localStorage.clear();
+                location.reload();
+            }
+        }
+
+        function loadVideo() {
+            const url = document.getElementById('videoUrl').value;
+            const match = url.match(/(?:youtu\.be\/|youtube\.com\/watch\?v=)([^#&?]*)/);
+            if (match) document.getElementById('player').src = `https://www.youtube-nocookie.com/embed/${match[1]}?rel=0&autoplay=1`;
+        }
+
+        function addTask() {
+            const input = document.getElementById('taskInput');
+            if (!input.value) return;
+            const div = document.createElement('div');
+            div.className = "flex items-center gap-2 bg-white/5 p-2 rounded text-[10px] mb-2";
+            div.innerHTML = `<input type="checkbox" class="accent-blue-600"> <span class="text-slate-300">${input.value}</span>`;
+            document.getElementById('taskList').prepend(div);
+            input.value = "";
+        }
+
+        document.getElementById('audioUpload').addEventListener('change', (e) => {
+            if (e.target.files[0]) audio.src = URL.createObjectURL(e.target.files[0]);
+        });
+        function toggleAudio() { if (audio.src) audio.paused ? audio.play() : audio.pause(); }
+        document.getElementById('volumeSlider').addEventListener('input', (e) => audio.volume = e.target.value);
+        notesArea.addEventListener('input', () => localStorage.setItem('focus_notes', notesArea.value));
+    </script>
+</body>
+</html>
